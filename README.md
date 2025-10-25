@@ -64,6 +64,41 @@ Total wall clock time: 3h51m
 
 (Your table might be missing the RL number by default). For a lot more information around the speedrun script and what to look for and expect, please refer to the walkthrough that I posted in Discussions of the repo: ["Introducing nanochat: The best ChatGPT that $100 can buy"](https://github.com/karpathy/nanochat/discussions/1).
 
+## GPU Training Setup
+
+For detailed GPU setup guides, see:
+- **[Lambda Labs Setup Guide](docs/lambda-setup.md)** - Complete walkthrough for Lambda's 8XH100/A100 instances (recommended)
+- Other cloud providers (AWS, GCP, Azure) work similarly - just ensure you have 8XH100 or 8XA100 GPUs
+
+## Monitoring with Weights & Biases
+
+You can monitor your training runs in real-time using Weights & Biases (wandb). This provides live tracking of training loss, evaluation metrics, learning rates, and performance stats.
+
+**First time setup:**
+
+```bash
+# Install wandb if needed (should already be in dependencies)
+pip install wandb
+
+# Login to wandb (will prompt for API key from wandb.ai)
+wandb login
+```
+
+**Run with wandb logging:**
+
+```bash
+# Run speedrun with custom run name
+WANDB_RUN=my_speedrun_name bash speedrun.sh
+
+# Or with screen logging + wandb
+screen -L -Logfile speedrun.log -S speedrun env WANDB_RUN=my_speedrun_name bash speedrun.sh
+
+# For the $1000 tier run
+WANDB_RUN=nanochat_d32_big_run bash run1000.sh
+```
+
+By default, `WANDB_RUN=dummy` which disables wandb logging. Setting `WANDB_RUN` to any other value enables logging with that run name. All metrics will be viewable in real-time on your wandb dashboard at `https://wandb.ai/<your-username>/<project>/runs/<run-name>`.
+
 ## Bigger models
 
 Unsurprisingly, $100 is not enough to train a highly performant ChatGPT clone. In fact, LLMs are famous for their multi-million dollar capex. For our purposes, I think there are two more scales of interest. First is the ~$300 tier d26 model (i.e. depth=26) that trains in ~12 hours, which slightly outperforms GPT-2 CORE score. Second is the $1000 tier (~41.6 hours), just because it's a nice round number. But both of these are not yet fully supported and therefore not attached here in the master branch yet.
@@ -93,9 +128,34 @@ And a bit more about computing environments that will run nanochat:
 - If your GPU(s) have less than 80GB, you'll have to tune some of the hyperparameters or you will OOM / run out of VRAM. Look for `--device_batch_size` in the scripts and reduce it until things fit. E.g. from 32 (default) to 16, 8, 4, 2, or even 1. Less than that you'll have to know a bit more what you're doing and get more creative.
 - Most of the code is fairly vanilla PyTorch so it should run on anything that supports that - xpu, mps, or etc, but I haven't implemented this out of the box so it might take a bit of tinkering.
 
-## Running on CPU / MPS
+## Running Locally (CPU / MPS / Inference)
 
-nanochat cn be run on CPU or on MPS (if you're on Macbook), and will automatically try to detect what device is best to run on. You're not going to get too far without GPUs, but at least you'll be able to run the code paths and maybe train a tiny LLM with some patience. For an example of how to make all the run commands much smaller (feel free to tune!), you can refer to [dev/runcpu.sh](dev/runcpu.sh) file. You'll see that I'm essentially restricting all scripts to train smaller models, to run for shorter number of iterations, etc. This functionality is new, slightly gnarly (touched a lot of code), and was merged in this [CPU|MPS PR](https://github.com/karpathy/nanochat/pull/88) on Oct 21, 2025.
+### Running Your Trained Model Locally
+
+After training on GPUs, you can download your model and run it locally on your Mac or any other machine! See the **[Local Inference Guide](docs/local-inference.md)** for complete instructions on:
+- Downloading checkpoints from your GPU instance
+- Setting up nanochat locally with CPU/MPS support
+- Running the web UI or CLI chat with your trained model
+- Performance expectations on different hardware (5-50 tokens/sec on Apple Silicon)
+
+Quick overview:
+```bash
+# Download checkpoints from GPU instance
+scp -r ubuntu@<instance-ip>:~/.cache/nanochat/ ./nanochat-checkpoints/
+
+# Set up locally (on your Mac)
+uv sync --extra cpu  # CPU/MPS-optimized PyTorch
+uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
+
+# Run your trained model
+export NANOCHAT_BASE_DIR=./nanochat-checkpoints
+python -m scripts.chat_web  # Web UI
+python -m scripts.chat_cli  # CLI chat
+```
+
+### Training on CPU / MPS
+
+You can also train on CPU or MPS (Apple Silicon), though you won't get very far without GPUs. For an example of scaled-down hyperparameters, see [dev/runcpu.sh](dev/runcpu.sh). This is mainly for testing code paths, not serious training. This functionality was merged in this [CPU|MPS PR](https://github.com/karpathy/nanochat/pull/88) on Oct 21, 2025.
 
 ## Customization
 
