@@ -214,161 +214,81 @@ grad_accum_steps = total_batch_size / (device_batch_size * seq_len * world_size)
 ```
 Reduce `device_batch_size` if you OOM—the code will compensate with more accumulation steps.
 
-## Setting Up on Lambda Labs GPU Instances
+## Documentation Structure
 
-Lambda Labs (https://cloud.lambda.ai/instances) provides on-demand GPU instances perfect for nanochat training. They offer 8XH100 and 8XA100 configurations at competitive rates with PyTorch and CUDA pre-installed.
+Detailed setup and usage guides are now organized in the `docs/` directory:
 
-### 1. Launch Instance
+- **[docs/lambda-setup.md](docs/lambda-setup.md)**: Complete Lambda Labs GPU setup guide
+  - Instance launch and SSH setup
+  - Dependency installation (uv, Rust, PyTorch)
+  - Training execution with screen sessions
+  - Monitoring, downloading results, and troubleshooting
+  - Quick setup script for automation
 
-1. Go to https://cloud.lambda.ai/instances
-2. Select an instance type:
-   - **8x H100 (80 GB SXM5)**: Recommended, ~$24/hr, perfect for all nanochat workloads
-   - **8x A100 (80 GB SXM4)**: Also works well, slightly slower
-3. Choose a region with availability
-4. Add your SSH key (or generate a new one)
-5. Launch the instance
+- **[docs/local-inference.md](docs/local-inference.md)**: Running trained models locally
+  - Downloading checkpoints from GPU instances
+  - Local setup for Mac/Linux/Windows (CPU/MPS support)
+  - Running web UI and CLI chat with your model
+  - Performance expectations (5-50 tok/sec on Apple Silicon)
+  - Memory requirements and troubleshooting
 
-### 2. SSH into Instance
+- **[docs/README.md](docs/README.md)**: Documentation index and navigation
 
-Once the instance is running:
+## GPU Training Setup
+
+### Lambda Labs (Recommended)
+
+For complete setup instructions, see [docs/lambda-setup.md](docs/lambda-setup.md).
+
+Quick reference:
 ```bash
-ssh ubuntu@<instance-ip>
-```
-
-Lambda instances come with:
-- Ubuntu with CUDA toolkit pre-installed
-- PyTorch pre-installed (but we'll use our own via uv)
-- Good network bandwidth for downloading datasets
-
-### 3. Clone Repository
-
-```bash
-# Clone the nanochat repository
-git clone https://github.com/karpathy/nanochat.git
-cd nanochat
-```
-
-### 4. Install Dependencies
-
-Lambda instances have Python and basic tools, but we need uv and Rust:
-
-```bash
-# Install uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.cargo/env  # Make uv available
-
-# Install Rust (needed for tokenizer)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-
-# Create virtual environment and install Python dependencies
-uv venv
-source .venv/bin/activate
-uv sync --extra gpu
-
-# Build the Rust tokenizer
+# On Lambda instance: Install dependencies
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.cargo/env
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"
+uv venv && source .venv/bin/activate && uv sync --extra gpu
 uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
-```
 
-### 5. Optional: Setup wandb
+# Run training in screen session
+screen -L -Logfile speedrun.log -S speedrun bash speedrun.sh
 
-If you want experiment tracking:
-```bash
-wandb login
-# Follow the prompts to authenticate
-```
-
-### 6. Start Training
-
-Now you're ready to run the full pipeline:
-
-```bash
-# Run in a screen session so it continues if SSH disconnects
-screen -L -Logfile speedrun.log -S speedrun
-
-# Start the training pipeline (4 hours on 8XH100, ~$100)
-bash speedrun.sh
-
-# Detach from screen: Ctrl+A, then D
-# Reattach later: screen -r speedrun
-```
-
-Or run individual stages:
-```bash
-# Tokenizer training (quick, ~5 min)
-python -m scripts.tok_train --max_chars=2000000000
-
-# Base model pretraining (longest stage)
-torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=20
-
-# Continue with other stages...
-```
-
-### 7. Monitor Training
-
-While training runs:
-
-```bash
-# Watch the log file
-tail -f speedrun.log
-
-# Check GPU utilization
-nvidia-smi
-
-# Check training progress (if using wandb)
-# Visit your wandb dashboard in browser
-```
-
-### 8. Download Results
-
-After training completes:
-
-```bash
-# On your local machine, copy the results
-scp -r ubuntu@<instance-ip>:~/nanochat/report.md ./
+# Download results (from local machine)
 scp -r ubuntu@<instance-ip>:~/.cache/nanochat/ ./nanochat-checkpoints/
 ```
 
-### Lambda-Specific Tips
+**Key points**:
+- 8XH100 (~$24/hr) or 8XA100 instances
+- Lambda has ephemeral storage - download checkpoints before terminating!
+- Use screen/tmux for long-running training
+- ~4 hours for $100 tier, ~12 hours for $300 tier, ~42 hours for $1000 tier
 
-1. **Persistent Storage**: Lambda instances have ephemeral storage. Download checkpoints and results before terminating!
-2. **Network Speed**: Lambda has excellent network bandwidth—dataset downloads are fast
-3. **Screen/tmux**: Always use `screen` or `tmux` to keep training running if SSH disconnects
-4. **Cost Monitoring**: Lambda charges by the hour. Monitor your spending in the dashboard
-5. **Availability**: H100 instances can have limited availability—launch as soon as you see one available
-6. **Snapshot Before Shutdown**: If you need to pause, create a persistent filesystem or snapshot your work
+## Local Inference
 
-### Quick Start Script for Lambda
+### Running Your Trained Model Locally
 
-Save this as `lambda_setup.sh` for convenience:
+After training on GPUs, download and run your model on Mac/Linux/Windows. See [docs/local-inference.md](docs/local-inference.md) for complete instructions.
 
+Quick reference:
 ```bash
-#!/bin/bash
-# Quick setup script for Lambda Labs instances
+# Download checkpoints from GPU instance
+scp -r ubuntu@<instance-ip>:~/.cache/nanochat/ ./nanochat-checkpoints/
 
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.cargo/env
-
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-
-# Setup Python environment
-uv venv
-source .venv/bin/activate
-uv sync --extra gpu
-
-# Build tokenizer
+# Setup locally with CPU/MPS support
+uv sync --extra cpu
 uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 
-echo "Setup complete! Run 'bash speedrun.sh' to start training."
+# Run inference
+export NANOCHAT_BASE_DIR=./nanochat-checkpoints
+python -m scripts.chat_web  # Web UI (recommended)
+python -m scripts.chat_cli  # CLI chat
 ```
 
-Then just:
-```bash
-bash lambda_setup.sh
-```
+**Performance expectations**:
+- Apple Silicon (M1/M2/M3 Max/Ultra): 20-50 tokens/sec
+- Apple Silicon (M1/M2/M3 Base/Pro): 5-25 tokens/sec
+- Intel Mac / Linux CPU: 3-15 tokens/sec
+- Model memory: d20 (~4GB), d26 (~6GB), d32 (~10GB)
+
+**Device autodetection**: Code automatically uses CUDA > MPS > CPU
 
 ## Model Scaling Guide
 
